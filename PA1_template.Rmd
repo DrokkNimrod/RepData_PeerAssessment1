@@ -1,25 +1,173 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Drokk Nimrod"
 output: 
   html_document:
     keep_md: true
 ---
+## Purpose of the document
+This is an assignment from the Coursera Course on Reproducible Research. It deals with an activity data set from a single individual possessing a fitness tracker.
+
+The measurements were taken every 5 minutes in a two month period, namely October and November of the year 2012. There are 61 days in this period, hence the data contains $61\cdot 24\cdot 12 = 17568$ observations.
+
+### Setting up global stuff 
+In this section I am including various packages and setting up global settings. 
+```{r}
+options(warn=1)
+library(dplyr)
+```
 
 
 ## Loading and preprocessing the data
+We assume that the data from the fitness tracker has been unzipped in the local directory. We read the data and assess the structure.
+```{r readcsv}
+activity <- read.csv("activity.csv")
+str(activity)
+```
 
+### Understanding the data
+There are three variables in the data "steps", "date", and "interval" which are described in the assignment. The purpose of this section is to understand each variable a little better.
 
+- steps is either a number or NA.
+- date is a string denoting the date of the measurement in the format "yyy-mm-dd", i.e. "2012-10-23".
+- interval is a integer encoding the time of day of the measurement. If it is two digits, it is the 5-minute interval after midnight, i.e. 25 denotes the measurement 25 minutes after midnight. If it is three digits, the first denotes the hour after midnight, i.e. 745 is the measurement at 45 minutes past 7. Similary for 4 digits.
 
 ## What is mean total number of steps taken per day?
+We calculate the total number of steps taken each day. We remove the missing observations, essentially interpreting them as 0 steps in the given interval.
+```{r totalsteps}
+steps_per_day <- tapply(activity$steps, activity$date, sum, na.rm=TRUE)
+```
+There are 61 days with measurements (including the NA. For instance the first day have nothing but NA as steps). How are the total number of steps per day distributed? To get a sense of this, we plot a histogram after having experimented with a proper number of bins and calculate the summary statistics, including the mean and the median.
+
+```{r hist}
+summary(steps_per_day)
+hist(steps_per_day, breaks=20)
+
+```
+  
+  We see the distribution is skewed to the left, but the average number of steps per day is around 10.000. The mean is somewhat smaller than median due to a large number of steps close to 0.
+It seems unlikely that a normal person would take so few steps in a day unless hospitalized or similar. Hence it is probably the NAs being interpreted as 0. We will investigate this in a later section.
 
 
 
 ## What is the average daily activity pattern?
+Since a person is sleeping at least some of they day we expect that the activity is not evenly distributed across time intervals.
+Let us investigate this.
 
+We plot the average number of steps in each time interval over all 61 days as a time series. There are $24\cdot 12=288$ intervals.
+
+```{r activity}
+avg_steps_per_interval <- tapply(activity$steps, activity$interval, mean, na.rm=TRUE)
+plot(1:288, as.vector(avg_steps_per_interval), type='l', 
+     main = "Average number of steps during a 24 hours period", 
+     ylab='Number of steps', xlab="5 minute interval since midnight")
+```
+
+
+I have used the sequence, since we can't just use the names of the intervals as x-values in the plot, because they are not equidistant, i.e. the intervals "450", "455" and "500" are each 5 minutes apart from each other, but numerically the distance between the first pair is 5, whereas it is 45 for the latter pair.
+
+Just as suspected. The activity varies a lot during the day. It peaks around morning (the interval "835") with an average of just above 200 steps. There are three smaller bursts of activity at around 12.10, 15.45 and 18.45. The lowest activity (close to zero steps) is late at night.
+```{r}
+max_steps<-max(avg_steps_per_interval)
+print(max_steps)
+which(avg_steps_per_interval == max_steps)
+```
 
 
 ## Imputing missing values
 
+We have already noted the large number of missing values. Let us discuss the matter further and determine the fraction of missing measurements.
+```{r}
+sum(is.na(activity$steps))/nrow(activity)
+```
+13% is a pretty big number. Is it due to the person not wearing the device at certain times? Lets see how many days consists of nothing but missing values. We do that by using the apply functions. First we construct an array where each column corresponds to a date and each element is whether the steps are na. Then we use R's function "prod" coercion of TRUE and FALSE to 1 and 0 respectivly. If the product of all elements in a column of missing_days is 1, it is because is.na is true for all of the elements and hence each and everyone were missing.
+```{r}
+missing_days <- tapply(activity$steps, activity$date, is.na)
+md <- sapply(missing_days, prod)
+which(md == 1)
+```
+8 total days of nothing but NA steps. That actually makes up all of the missing values, since $8/61 = 0.1311475$ which were the fraction of NAs.
 
+
+
+The presence of missing days may introduce bias into some calculations or summaries of the data. 
+
+Since we know very little about how the device works and the daily life of the individual in the experiment we use a very simple strategy for imputing the missing measurements, i.e. we simply use the observed mean per time interval for those days which do have measurements.
+
+We make a copy of the dataset with the mean measurements in place of the missing values. We have already identified the dates with the missing values, i.e. where the vector md is 1, so we simply assign the average measurements to the steps column where the row indices corresponds to the correct date.
+
+As a sanity check we find the number of NAs before and after the operation.
+
+```{r}
+activity_iv <- activity
+sum(is.na(activity_iv$steps))
+for (d in names(md[md==1])){
+    indices <- which(activity$date == d)
+    activity_iv[indices,1] <- as.vector(avg_steps_per_interval)
+}
+sum(is.na(activity_iv$steps))
+```
+
+Since the large number of missing values were previously interpreted as zero steps when calculating the total number of steps per day, we expect the imputed values to change the distribution of the activity.
+
+```{r steps_iv}
+steps_per_day_iv <- tapply(activity_iv$steps, activity_iv$date, sum, na.rm=TRUE)
+summary(steps_per_day_iv)
+hist(steps_per_day_iv, breaks=20)
+```
+
+Since the NAs have been replaced by the imputed values which are positive, the mean is now larger and the average number of steps is now estimated as 10.766. Furthermore the distribution is no longer skewed to the left. 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+In order to answer this question we define a new factor taking on two levels "weekend" and "weekday" depending on whether the date of the measurements were either a saturday or a sunday or a normal weekday.
+We can use R's built in Date functions to accomplish this.
+
+```{r dates}
+activity_iv$weekday <- "Unknown"
+
+## I have some trouble setting date time correctly
+## Therefore I get some warnings about time zones in the output from knitr.
+## They don't appear to be relevant so I suppress warnings temporarily.
+warn_n <- getOption("warn")
+options(warn = -1)
+
+# I simply loop through all the dates and determine whethere it is
+# a weekday or a weekend. Probably inefficient, but an efficient use
+# of my time.
+for (i in 1:length(activity_iv$weekday)){
+    day <- weekdays(as.Date(activity_iv$date[i], format="%Y-%m-%d"))
+    if (day == "Saturday" || day == "Sunday"){
+        activity_iv$weekday[i] <- "weekend"
+    }
+    else {
+        activity_iv$weekday[i] <- "weekday"
+    }
+}
+## Return warnings to the normal setting
+options(warn = warn_n)
+
+# Sanity check. 
+range(activity_iv$weekday)
+
+```
+
+I want to split the activity data in two sets depending on whether the dates are on weekdays or weekend. It turns out that the dplyr package provide very convinient filter methods which are easy to understand.
+
+```{r}
+activity_iv %>% filter(weekday=="weekday") -> activity_weekdays
+activity_iv %>% filter(weekday=="weekend") -> activity_weekends
+
+avg_steps_weekdays  <- tapply(activity_weekdays$steps, 
+                              activity_weekdays$interval, mean, na.rm=TRUE)
+
+avg_steps_weekends  <- tapply(activity_weekends$steps, 
+                              activity_weekends$interval, mean, na.rm=TRUE)
+
+plot(1:288, as.vector(avg_steps_weekdays), type='l', 
+     main = "Weekdays", ylab='Number of steps', xlab="5 minute interval")
+
+plot(1:288, as.vector(avg_steps_weekends), type='l', 
+     main = "Weekends", ylab='Number of steps', xlab="5 minute interval")
+```
+
+averaged across all weekday days or weekend days (y-axis). See the README file in the GitHub repository to see an example of what this plot should look like using simulated data.
