@@ -15,6 +15,7 @@ In this section I am including various packages and setting up global settings.
 ```{r}
 options(warn=1)
 library(dplyr)
+library(ggplot2)
 ```
 
 
@@ -163,11 +164,19 @@ avg_steps_weekdays  <- tapply(activity_weekdays$steps,
 avg_steps_weekends  <- tapply(activity_weekends$steps, 
                               activity_weekends$interval, mean, na.rm=TRUE)
 
-plot(1:288, as.vector(avg_steps_weekdays), type='l', 
-     main = "Weekdays", ylab='Number of steps', xlab="5 minute interval")
+df<-data.frame(steps=avg_steps_weekdays,
+               intervals=names(avg_steps_weekdays))
+d <- ggplot(df, aes(1:288, steps)) + geom_line() + xlab("")
 
-plot(1:288, as.vector(avg_steps_weekends), type='l', 
-     main = "Weekends", ylab='Number of steps', xlab="5 minute interval")
+dfw<-data.frame(steps=avg_steps_weekends,
+               intervals=names(avg_steps_weekends))
+dw <- ggplot(dfw, aes(1:288, steps)) + geom_line() + xlab("")
+
+# Two plots in one figure
+par(mfrow=(c(2,1)))
+# Plot the timeseries with a title
+d + scale_x_discrete("Time of day") + ggtitle("Weekdays")
+dw + scale_x_discrete("Time of day") + ggtitle("Weekends")
 ```
 
-averaged across all weekday days or weekend days (y-axis). See the README file in the GitHub repository to see an example of what this plot should look like using simulated data.
+We note that while both plots show the peak of activity at the same time in the morning the number of steps during the day is much higher on the weekend.
